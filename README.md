@@ -1,2 +1,3 @@
-# vybelink-web
-Validation of the Music-Sharing Feature
+# VybeLink Web
+
+Web prototype to validate local, anonymous music moments.
