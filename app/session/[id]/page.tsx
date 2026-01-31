@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import QRCode from 'react-qr-code';
 
 const DURATION_MS = 120_000; // 120 seconds
 
@@ -125,6 +126,53 @@ function drawQRToCanvas(canvas: HTMLCanvasElement, text: string, sizePx = 256, q
   }
 }
 
+function AnchorHostQR({ sessionId }: { sessionId: string }) {
+  // capture origin client-side
+  const [origin, setOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOrigin(window.location.origin);
+  }, []);
+
+  const text = origin ? `${origin}/session/${encodeURIComponent(sessionId)}` : "";
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      {/* Temporary visible debug label to confirm rendering */}
+      <div style={{ color: 'red', fontSize: 12, fontWeight: 600 }}>DEBUG: NEW QR COMPONENT ACTIVE</div>
+
+      {/* white, non-rounded card with fixed size and visible red border */}
+      <div
+        aria-hidden
+        style={{
+          background: '#ffffff',
+          padding: 0,
+          boxSizing: 'border-box',
+          width: 240,
+          height: 240,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '4px solid red',
+          borderRadius: 0,
+        }}
+      >
+        {/* render QR only when origin is available; this SVG will be 1:1 with native size */}
+        {origin && (
+          <QRCode
+            value={text}
+            size={240}
+            level="Q"
+            bgColor="#ffffff"
+            fgColor="#000000"
+            viewBox="0 0 256 256"
+            style={{ width: 240, height: 240, display: 'block' }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SessionLandingPage() {
   const params = useParams() as { id?: string };
   const searchParams = useSearchParams();
@@ -150,9 +198,6 @@ export default function SessionLandingPage() {
   const [remainingMs, setRemainingMs] = useState<number>(DURATION_MS);
   const startRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
-
-  // canvas ref for QR
-  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Mounted flag to ensure QR drawing only runs on client after hydration
   const [mounted, setMounted] = useState(false);
@@ -232,23 +277,6 @@ export default function SessionLandingPage() {
   const dashoffset = circumference * (1 - ratio);
   const secondsLeft = Math.ceil(remainingMs / 1000);
 
-  // Draw QR when anchor host is active and canvas exists — only after mount (client-side)
-  useEffect(() => {
-    if (!mounted) return;
-    if (!isAnchorHost) return;
-
-    const canvas = qrCanvasRef.current;
-    if (!canvas) return;
-
-    // Safe to access window/location now that we're mounted
-    const origin = window.location?.origin ?? '';
-    const listenerPath = `/session/${encodeURIComponent(sessionId)}`;
-    const text = `${origin}${listenerPath}`;
-
-    // draw at fixed 256×256 with a 24px quiet zone for reliable scanning
-    drawQRToCanvas(canvas, text, 256, 24);
-  }, [mounted, isAnchorHost, sessionId]);
-
   // TODO: temporary debug logs for verifying Anchor Host / Listener logic — remove before production
   useEffect(() => {
     if (isAnchorHost) {
@@ -271,19 +299,7 @@ export default function SessionLandingPage() {
           <p className="text-white/70">Music is playing nearby</p>
 
           <div className="mt-4 flex flex-col items-center">
-            {/* centered white card containing the QR; padding ensures no dark background shows */}
-            <div
-              className="rounded-lg bg-white"
-              aria-hidden
-              style={{ padding: 24, boxSizing: 'border-box', width: 304, display: 'flex', justifyContent: 'center' }}
-            >
-              <canvas
-                ref={qrCanvasRef}
-                width={256}
-                height={256}
-                style={{ width: 256, height: 256, display: 'block', pointerEvents: 'none' }}
-              />
-            </div>
+            <AnchorHostQR sessionId={sessionId} />
 
             <p className="text-white/80 text-xs mt-4">Let others join by scanning</p>
           </div>
