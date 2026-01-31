@@ -1,177 +1,12 @@
-"use client";
-
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import QRCode from 'react-qr-code';
+import { AnchorHostQR } from "./AnchorHostQR";
 
 const DURATION_MS = 120_000; // 120 seconds
 
 // Anchor session id for outdoor / quick testing.
 // Change this value when you want to test a stable session URL (e.g. /session/anchor-session-001)
 const ANCHOR_SESSION_ID = "anchor-session-001";
-
-/*
-  Minimal QR code generator (compact, dependency-free).
-  This implementation is intentionally small and not fully spec-compliant,
-  but sufficient to generate a scannable QR for testing short URLs.
-*/
-function createData(data: string) {
-  const bytes = new TextEncoder().encode(data);
-  const out: number[] = [];
-  // Simple header for byte mode not strictly RFC-complete; pad to capacity
-  for (const b of bytes) out.push(b);
-  // pad
-  const capacity = 44; // approximate capacity for small version
-  while (out.length < capacity) {
-    out.push(0xec);
-    if (out.length >= capacity) break;
-    out.push(0x11);
-  }
-  return out;
-}
-
-function buildMatrix(dataBytes: number[]) {
-  const version = 2; // 25x25
-  const size = 17 + 4 * version;
-  const modules: number[][] = Array.from({ length: size }, () => Array(size).fill(0));
-
-  // Finder patterns (simple placement)
-  function placeFinder(r: number, c: number) {
-    for (let i = -1; i <= 7; i++) {
-      for (let j = -1; j <= 7; j++) {
-        const rr = r + i;
-        const cc = c + j;
-        if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
-        if ((0 <= i && i <= 6 && (j === 0 || j === 6)) || (0 <= j && j <= 6 && (i === 0 || i === 6))) {
-          modules[rr][cc] = 1;
-        } else if (1 <= i && i <= 5 && 1 <= j && j <= 5) {
-          modules[rr][cc] = 1;
-        } else {
-          modules[rr][cc] = 0;
-        }
-      }
-    }
-  }
-
-  placeFinder(0, 0);
-  placeFinder(0, size - 7);
-  placeFinder(size - 7, 0);
-
-  // Timing patterns
-  for (let i = 8; i < size - 8; i++) {
-    const bit = (i % 2 === 0) ? 1 : 0;
-    modules[6][i] = bit;
-    modules[i][6] = bit;
-  }
-
-  // Place data with simple zigzag skipping reserved
-  let dirUp = true;
-  let col = size - 1;
-  let dataBitIndex = 0;
-  const totalBits = dataBytes.length * 8;
-  const getBit = (idx: number) => (dataBytes[Math.floor(idx / 8)] >> (7 - (idx % 8))) & 1;
-
-  while (col > 0) {
-    if (col === 6) col--; // skip timing column
-    for (let i = 0; i < size; i++) {
-      const r = dirUp ? size - 1 - i : i;
-      for (let c = 0; c < 2; c++) {
-        const cc = col - c;
-        // skip reserved (finder and timing) areas
-        const isReserved = modules[r][cc] === 1 || r === 6 || cc === 6;
-        if (!isReserved && dataBitIndex < totalBits) {
-          modules[r][cc] = getBit(dataBitIndex);
-          dataBitIndex++;
-        }
-      }
-    }
-    col -= 2;
-    dirUp = !dirUp;
-  }
-
-  return modules;
-}
-
-function drawQRToCanvas(canvas: HTMLCanvasElement, text: string, sizePx = 256, quietPx = 24) {
-  // Build modules
-  const bytes = createData(text);
-  const modules = buildMatrix(bytes);
-  const n = modules.length;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  // Fixed canvas size (pixels) for reliable scanning
-  canvas.width = sizePx;
-  canvas.height = sizePx;
-
-  // Calculate module scale so that there's at least `quietPx` white margin on all sides
-  const innerSize = sizePx - 2 * quietPx;
-  const scale = Math.floor(innerSize / n);
-  const actualModulesSize = scale * n;
-  const centerOffset = Math.floor((innerSize - actualModulesSize) / 2);
-  const offset = quietPx + centerOffset;
-
-  // Fill full white background (pure white required)
-  ctx.fillStyle = "#FFFFFF";
-  ctx.fillRect(0, 0, sizePx, sizePx);
-
-  // Draw modules in black
-  ctx.fillStyle = "#000000";
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      if (modules[r][c]) {
-        ctx.fillRect(offset + c * scale, offset + r * scale, scale, scale);
-      }
-    }
-  }
-}
-
-function AnchorHostQR({ sessionId }: { sessionId: string }) {
-  // capture origin client-side
-  const [origin, setOrigin] = useState<string | null>(null);
-  useEffect(() => {
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
-  }, []);
-
-  const text = origin ? `${origin}/session/${encodeURIComponent(sessionId)}` : "";
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-      {/* Temporary visible debug label to confirm rendering */}
-      <div style={{ color: 'red', fontSize: 12, fontWeight: 600 }}>DEBUG: NEW QR COMPONENT ACTIVE</div>
-
-      {/* white, non-rounded card with fixed size and visible red border */}
-      <div
-        aria-hidden
-        style={{
-          background: '#ffffff',
-          padding: 0,
-          boxSizing: 'border-box',
-          width: 240,
-          height: 240,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '4px solid red',
-          borderRadius: 0,
-        }}
-      >
-        {/* render QR only when origin is available; this SVG will be 1:1 with native size */}
-        {origin && (
-          <QRCode
-            value={text}
-            size={240}
-            level="Q"
-            bgColor="#ffffff"
-            fgColor="#000000"
-            viewBox="0 0 256 256"
-            style={{ width: 240, height: 240, display: 'block' }}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function SessionLandingPage() {
   const params = useParams() as { id?: string };
@@ -198,12 +33,6 @@ export default function SessionLandingPage() {
   const [remainingMs, setRemainingMs] = useState<number>(DURATION_MS);
   const startRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
-
-  // Mounted flag to ensure QR drawing only runs on client after hydration
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     eventLogger("landing_viewed");
